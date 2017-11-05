@@ -114,6 +114,14 @@ contract LoopringProtocolImpl is LoopringProtocol {
         bool         throwIfLRCIsInsuffcient;
     }
 
+    struct Context {
+        TokenRegistry           tokenRegistry;
+        RinghashRegistry        ringhashRegistry;
+        TokenTransferDelegate   delegate;
+        uint        size;
+        bytes32     ringhash;
+    }
+
 
     ////////////////////////////////////////////////////////////////////////////
     /// Events                                                               ///
@@ -244,11 +252,17 @@ contract LoopringProtocolImpl is LoopringProtocol {
         ringIndex |= ENTERED_MASK;
 
         //Check ring size
-        uint ringSize = addressList.length;
-        require(ringSize > 1 && ringSize <= maxRingSize); //, "invalid ring size");
+        var context = Context(
+            TokenRegistry(tokenRegistryAddress),
+            RinghashRegistry(ringhashRegistryAddress),
+            TokenTransferDelegate(delegateAddress),
+            addressList.length,
+            bytes32(0));
+
+        require(context.size > 1 && context.size <= maxRingSize); //, "invalid ring size");
 
         verifyInputDataIntegrity(
-            ringSize,
+            context,
             addressList,
             uintArgsList,
             uint8ArgsList,
@@ -258,29 +272,28 @@ contract LoopringProtocolImpl is LoopringProtocol {
             sList
         );
 
-        verifyTokensRegistered(addressList);
+        verifyTokensRegistered(context, addressList);
 
-        var ringhashRegistry = RinghashRegistry(ringhashRegistryAddress);
-
-        bytes32 ringhash = ringhashRegistry.calculateRinghash(
-            ringSize,
+        context.ringhash = context.ringhashRegistry.calculateRinghash(
+            context.size,
             vList,
             rList,
             sList
         );
 
-        require(ringhashRegistry.canSubmit(ringhash, feeRecepient)); //, "Ring claimed by others");
+        require(context.ringhashRegistry.canSubmit(context.ringhash, ringminer)); //, "Ring claimed by others");
 
         verifySignature(
             ringminer,
-            ringhash,
-            vList[ringSize],
-            rList[ringSize],
-            sList[ringSize]
+            context.ringhash,
+            vList[context.size],
+            rList[context.size],
+            sList[context.size]
         );
 
         //Assemble input data into a struct so we can pass it to functions.
         var orders = assembleOrders(
+            context,
             addressList,
             uintArgsList,
             uint8ArgsList,
@@ -295,8 +308,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         }
 
         handleRing(
-            ringhashRegistry,
-            ringhash,
+            context,
             orders,
             ringminer,
             feeRecepient,
@@ -404,46 +416,50 @@ contract LoopringProtocolImpl is LoopringProtocol {
     ////////////////////////////////////////////////////////////////////////////
 
     /// @dev Validate a ring.
-    function verifyRingHasNoSubRing(Ring ring)
+    function verifyRingHasNoSubRing(
+        Context context,
+        Ring    ring
+        )
         internal
         constant
     {
-        uint ringSize = ring.orders.length;
         // Check the ring has no sub-ring.
-        for (uint i = 0; i < ringSize - 1; i++) {
+        for (uint i = 0; i < context.size - 1; i++) {
             address tokenS = ring.orders[i].order.tokenS;
-            for (uint j = i + 1; j < ringSize; j++) {
+            for (uint j = i + 1; j < context.size; j++) {
                 require(tokenS != ring.orders[j].order.tokenS); //, "found sub-ring");
             }
         }
     }
 
-    function verifyTokensRegistered(address[2][] addressList)
+    function verifyTokensRegistered(
+        Context      context,
+        address[2][] addressList
+        )
         internal
         constant
     {
         // Extract the token addresses
-        address[] memory tokens = new address[](addressList.length);
-        for (uint i = 0; i < addressList.length; i++) {
+        address[] memory tokens = new address[](context.size);
+        for (uint i = 0; i < context.size; i++) {
             tokens[i] = addressList[i][1];
         }
 
         // Test all token addresses at once
-        require(TokenRegistry(tokenRegistryAddress).areAllTokensRegistered(tokens)); //, "token not registered");
+        require(context.tokenRegistry.areAllTokensRegistered(tokens)); //, "token not registered");
     }
 
     function handleRing(
-        RinghashRegistry ringhashRegistry,
-        bytes32 ringhash,
-        OrderState[] orders,
-        address miner,
-        address feeRecepient,
-        bool throwIfLRCIsInsuffcient
+        Context         context,
+        OrderState[]    orders,
+        address         miner,
+        address         feeRecepient,
+        bool            throwIfLRCIsInsuffcient
         )
         internal
     {
         var ring = Ring(
-            ringhash,
+            context.ringhash,
             orders,
             miner,
             feeRecepient,
@@ -451,33 +467,32 @@ contract LoopringProtocolImpl is LoopringProtocol {
         );
 
         // Do the hard work.
-        verifyRingHasNoSubRing(ring);
+        verifyRingHasNoSubRing(context, ring);
 
         // Exchange rates calculation are performed by ring-miners as solidity
         // cannot get power-of-1/n operation, therefore we have to verify
         // these rates are correct.
-        verifyMinerSuppliedFillRates(ring);
+        verifyMinerSuppliedFillRates(context, ring);
 
         // Scale down each order independently by substracting amount-filled and
         // amount-cancelled. Order owner's current balance and allowance are
         // not taken into consideration in these operations.
-        scaleRingBasedOnHistoricalRecords(ring);
+        scaleRingBasedOnHistoricalRecords(context, ring);
 
         // Based on the already verified exchange rate provided by ring-miners,
         // we can furthur scale down orders based on token balance and allowance,
         // then find the smallest order of the ring, then calculate each order's
         // `fillAmountS`.
-        calculateRingFillAmount(ring);
+        calculateRingFillAmount(context, ring);
 
-        var delegate = TokenTransferDelegate(delegateAddress);
         // Calculate each order's `lrcFee` and `lrcRewrard` and splict how much
         // of `fillAmountS` shall be paid to matching order or miner as margin
         // split.
         
-        calculateRingFees(delegate, ring);
+        calculateRingFees(context, ring);
 
         /// Make payments.
-        settleRing(delegate, ring);
+        settleRing(context, ring);
 
         RingMined(
             ringIndex ^ ENTERED_MASK,
@@ -486,24 +501,25 @@ contract LoopringProtocolImpl is LoopringProtocol {
             ring.ringhash,
             ring.miner,
             ring.feeRecepient,
-            ringhashRegistry.ringhashFound(ring.ringhash)
+            context.ringhashRegistry.ringhashFound(ring.ringhash)
         );
     }
 
-    function settleRing(TokenTransferDelegate delegate, Ring ring)
+    function settleRing(
+        Context context,
+        Ring    ring
+        )
         internal
     {
-        uint ringSize = ring.orders.length;
-
-        for (uint i = 0; i < ringSize; i++) {
+        for (uint i = 0; i < context.size; i++) {
             var state = ring.orders[i];
-            var prev = ring.orders[(i + ringSize - 1) % ringSize];
-            var next = ring.orders[(i + 1) % ringSize];
+            var prev = ring.orders[(i + context.size - 1) % context.size];
+            var next = ring.orders[(i + 1) % context.size];
 
             // Pay tokenS to previous order, or to miner as previous order's
             // margin split or/and this order's margin split.
 
-            delegate.transferToken(
+            context.delegate.transferToken(
                 state.order.tokenS,
                 state.order.owner,
                 prev.order.owner,
@@ -511,7 +527,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
             );
 
             if (prev.splitB + state.splitS > 0) {
-                delegate.transferToken(
+                context.delegate.transferToken(
                     state.order.tokenS,
                     state.order.owner,
                     ring.feeRecepient,
@@ -521,7 +537,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
             // Pay LRC
             if (state.lrcReward > 0) {
-                delegate.transferToken(
+                context.delegate.transferToken(
                     lrcTokenAddress,
                     ring.feeRecepient,
                     state.order.owner,
@@ -530,7 +546,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
             }
 
             if (state.lrcFee > 0) {
-                delegate.transferToken(
+                context.delegate.transferToken(
                     lrcTokenAddress,
                     state.order.owner,
                     ring.feeRecepient,
@@ -562,15 +578,17 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
     }
 
-    function verifyMinerSuppliedFillRates(Ring ring)
+    function verifyMinerSuppliedFillRates(
+        Context context,
+        Ring    ring
+        )
         internal
         constant
     {
         var orders = ring.orders;
-        uint ringSize = orders.length;
-        uint[] memory rateRatios = new uint[](ringSize);
+        uint[] memory rateRatios = new uint[](context.size);
 
-        for (uint i = 0; i < ringSize; i++) {
+        for (uint i = 0; i < context.size; i++) {
             uint s1b0 = orders[i].rate.amountS.mul(orders[i].order.amountB);
             uint s0b1 = orders[i].order.amountS.mul(orders[i].rate.amountB);
             
@@ -584,20 +602,22 @@ contract LoopringProtocolImpl is LoopringProtocol {
         require(cvs <= rateRatioCVSThreshold); //, "miner supplied exchange rate is not evenly discounted");
     }
 
-    function calculateRingFees(TokenTransferDelegate delegate, Ring ring)
+    function calculateRingFees(
+        Context context,
+        Ring    ring
+        )
         internal
         constant
     {
-        uint minerLrcSpendable = delegate.getSpendable(lrcTokenAddress, ring.feeRecepient);
-        uint ringSize = ring.orders.length;
+        uint minerLrcSpendable = context.delegate.getSpendable(lrcTokenAddress, ring.feeRecepient);
 
-        for (uint i = 0; i < ringSize; i++) {
+        for (uint i = 0; i < context.size; i++) {
             var state = ring.orders[i];
-            var next = ring.orders[(i + 1) % ringSize];
+            var next = ring.orders[(i + 1) % context.size];
 
             if (state.feeSelection == FEE_SELECT_LRC) {
 
-                uint lrcSpendable = delegate.getSpendable(lrcTokenAddress, state.order.owner);
+                uint lrcSpendable = context.delegate.getSpendable(lrcTokenAddress, state.order.owner);
 
                 if (lrcSpendable < state.lrcFee) {
                     require(!ring.throwIfLRCIsInsuffcient); //, "order LRC balance insuffcient");
@@ -651,17 +671,19 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
     }
 
-    function calculateRingFillAmount(Ring ring)
+    function calculateRingFillAmount(
+        Context context,
+        Ring    ring
+        )
         internal
         constant
     {
-        uint ringSize = ring.orders.length;
         uint smallestIdx = 0;
         uint i;
         uint j;
 
-        for (i = 0; i < ringSize; i++) {
-            j = (i + 1) % ringSize;
+        for (i = 0; i < context.size; i++) {
+            j = (i + 1) % context.size;
 
             uint res = calculateOrderFillAmount(
                 ring.orders[i],
@@ -676,7 +698,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         }
 
         for (i = 0; i < smallestIdx; i++) {
-            j = (i + 1) % ringSize;
+            j = (i + 1) % context.size;
             calculateOrderFillAmount(
                 ring.orders[i],
                 ring.orders[j]
@@ -730,13 +752,14 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
     /// @dev Scale down all orders based on historical fill or cancellation
     ///      stats but key the order's original exchange rate.
-    function scaleRingBasedOnHistoricalRecords(Ring ring)
+    function scaleRingBasedOnHistoricalRecords(
+        Context context,
+        Ring    ring
+        )
         internal
         constant
     {
-        uint ringSize = ring.orders.length;
-
-        for (uint i = 0; i < ringSize; i++) {
+        for (uint i = 0; i < context.size; i++) {
             var state = ring.orders[i];
             var order = state.order;
 
@@ -769,7 +792,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
     /// @dev verify input data's basic integrity.
     function verifyInputDataIntegrity(
-        uint ringSize,
+        Context         context,
         address[2][]    addressList,
         uint[7][]       uintArgsList,
         uint8[2][]      uint8ArgsList,
@@ -781,16 +804,16 @@ contract LoopringProtocolImpl is LoopringProtocol {
         internal
         constant
     {
-        require(ringSize == addressList.length); //, "ring data is inconsistent - addressList");
-        require(ringSize == uintArgsList.length); //, "ring data is inconsistent - uintArgsList");
-        require(ringSize == uint8ArgsList.length); //, "ring data is inconsistent - uint8ArgsList");
-        require(ringSize == buyNoMoreThanAmountBList.length); //, "ring data is inconsistent - buyNoMoreThanAmountBList");
-        require(ringSize + 1 == vList.length); //, "ring data is inconsistent - vList");
-        require(ringSize + 1 == rList.length); //, "ring data is inconsistent - rList");
-        require(ringSize + 1 == sList.length); //, "ring data is inconsistent - sList");
+        require(context.size == addressList.length); //, "ring data is inconsistent - addressList");
+        require(context.size == uintArgsList.length); //, "ring data is inconsistent - uintArgsList");
+        require(context.size == uint8ArgsList.length); //, "ring data is inconsistent - uint8ArgsList");
+        require(context.size == buyNoMoreThanAmountBList.length); //, "ring data is inconsistent - buyNoMoreThanAmountBList");
+        require(context.size + 1 == vList.length); //, "ring data is inconsistent - vList");
+        require(context.size + 1 == rList.length); //, "ring data is inconsistent - rList");
+        require(context.size + 1 == sList.length); //, "ring data is inconsistent - sList");
 
         // Validate ring-mining related arguments.
-        for (uint i = 0; i < ringSize; i++) {
+        for (uint i = 0; i < context.size; i++) {
             require(uintArgsList[i][6] > 0); //, "order rateAmountS is zero");
             require(uint8ArgsList[i][1] <= FEE_SELECT_MAX_VALUE); //, "invalid order fee selection");
         }
@@ -799,6 +822,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
     /// @dev        assmble order parameters into Order struct.
     /// @return     A list of orders.
     function assembleOrders(
+        Context         context,
         address[2][]    addressList,
         uint[7][]       uintArgsList,
         uint8[2][]      uint8ArgsList,
@@ -812,7 +836,6 @@ contract LoopringProtocolImpl is LoopringProtocol {
         returns (OrderState[])
     {
         var orders = new OrderState[](addressList.length);
-        var delegate = TokenTransferDelegate(delegateAddress);
 
         for (uint i = 0; i < addressList.length; i++) {
             var order = Order(
@@ -849,7 +872,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
                 orderHash,
                 uint8ArgsList[i][1],  // feeSelection
                 Rate(uintArgsList[i][6], order.amountB),
-                delegate.getSpendable(order.tokenS, order.owner),
+                context.delegate.getSpendable(order.tokenS, order.owner),
                 0,   // fillAmountS
                 0,   // lrcReward
                 0,   // lrcFee

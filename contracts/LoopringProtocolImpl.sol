@@ -120,6 +120,16 @@ contract LoopringProtocolImpl is LoopringProtocol {
         TokenTransferDelegate   delegate;
         uint        size;
         bytes32     ringhash;
+        address[2][]    addressList;
+        uint[7][]       uintArgsList;
+        uint8[2][]      uint8ArgsList;
+        bool[]          buyNoMoreThanAmountBList;
+        uint8[]         vList;
+        bytes32[]       rList;
+        bytes32[]       sList;
+        address         ringminer;
+        address         feeRecepient;
+        bool            throwIfLRCIsInsuffcient;
     }
 
 
@@ -257,22 +267,23 @@ contract LoopringProtocolImpl is LoopringProtocol {
             RinghashRegistry(ringhashRegistryAddress),
             TokenTransferDelegate(delegateAddress),
             addressList.length,
-            bytes32(0));
-
-        require(context.size > 1 && context.size <= maxRingSize); //, "invalid ring size");
-
-        verifyInputDataIntegrity(
-            context,
+            bytes32(0),
             addressList,
             uintArgsList,
             uint8ArgsList,
             buyNoMoreThanAmountBList,
             vList,
             rList,
-            sList
-        );
+            sList,
+            ringminer,
+            feeRecepient,
+            throwIfLRCIsInsuffcient);
 
-        verifyTokensRegistered(context, addressList);
+        require(context.size > 1 && context.size <= maxRingSize); //, "invalid ring size");
+
+        verifyInputDataIntegrity(context);
+
+        verifyTokensRegistered(context);
 
         context.ringhash = context.ringhashRegistry.calculateRinghash(
             context.size,
@@ -292,28 +303,13 @@ contract LoopringProtocolImpl is LoopringProtocol {
         );
 
         //Assemble input data into a struct so we can pass it to functions.
-        var orders = assembleOrders(
-            context,
-            addressList,
-            uintArgsList,
-            uint8ArgsList,
-            buyNoMoreThanAmountBList,
-            vList,
-            rList,
-            sList
-        );
+        var orders = assembleOrders(context);
 
         if (feeRecepient == address(0)) {
-            feeRecepient = ringminer;
+            context.feeRecepient = ringminer;
         }
 
-        handleRing(
-            context,
-            orders,
-            ringminer,
-            feeRecepient,
-            throwIfLRCIsInsuffcient
-        );
+        handleRing(context, orders);
 
         ringIndex = ringIndex ^ ENTERED_MASK + 1;
     }
@@ -432,17 +428,14 @@ contract LoopringProtocolImpl is LoopringProtocol {
         }
     }
 
-    function verifyTokensRegistered(
-        Context      context,
-        address[2][] addressList
-        )
+    function verifyTokensRegistered(Context context)
         internal
         constant
     {
         // Extract the token addresses
         address[] memory tokens = new address[](context.size);
         for (uint i = 0; i < context.size; i++) {
-            tokens[i] = addressList[i][1];
+            tokens[i] = context.addressList[i][1];
         }
 
         // Test all token addresses at once
@@ -451,19 +444,16 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
     function handleRing(
         Context         context,
-        OrderState[]    orders,
-        address         miner,
-        address         feeRecepient,
-        bool            throwIfLRCIsInsuffcient
+        OrderState[]    orders
         )
         internal
     {
         var ring = Ring(
             context.ringhash,
             orders,
-            miner,
-            feeRecepient,
-            throwIfLRCIsInsuffcient
+            context.ringminer,
+            context.feeRecepient,
+            context.throwIfLRCIsInsuffcient
         );
 
         // Do the hard work.
@@ -791,68 +781,49 @@ contract LoopringProtocolImpl is LoopringProtocol {
     }
 
     /// @dev verify input data's basic integrity.
-    function verifyInputDataIntegrity(
-        Context         context,
-        address[2][]    addressList,
-        uint[7][]       uintArgsList,
-        uint8[2][]      uint8ArgsList,
-        bool[]          buyNoMoreThanAmountBList,
-        uint8[]         vList,
-        bytes32[]       rList,
-        bytes32[]       sList
-        )
+    function verifyInputDataIntegrity(Context context)
         internal
         constant
     {
-        require(context.size == addressList.length); //, "ring data is inconsistent - addressList");
-        require(context.size == uintArgsList.length); //, "ring data is inconsistent - uintArgsList");
-        require(context.size == uint8ArgsList.length); //, "ring data is inconsistent - uint8ArgsList");
-        require(context.size == buyNoMoreThanAmountBList.length); //, "ring data is inconsistent - buyNoMoreThanAmountBList");
-        require(context.size + 1 == vList.length); //, "ring data is inconsistent - vList");
-        require(context.size + 1 == rList.length); //, "ring data is inconsistent - rList");
-        require(context.size + 1 == sList.length); //, "ring data is inconsistent - sList");
+        require(context.size == context.uintArgsList.length); //, "ring data is inconsistent - uintArgsList");
+        require(context.size == context.uint8ArgsList.length); //, "ring data is inconsistent - uint8ArgsList");
+        require(context.size == context.buyNoMoreThanAmountBList.length); //, "ring data is inconsistent - buyNoMoreThanAmountBList");
+        require(context.size + 1 == context.vList.length); //, "ring data is inconsistent - vList");
+        require(context.size + 1 == context.rList.length); //, "ring data is inconsistent - rList");
+        require(context.size + 1 == context.sList.length); //, "ring data is inconsistent - sList");
 
         // Validate ring-mining related arguments.
         for (uint i = 0; i < context.size; i++) {
-            require(uintArgsList[i][6] > 0); //, "order rateAmountS is zero");
-            require(uint8ArgsList[i][1] <= FEE_SELECT_MAX_VALUE); //, "invalid order fee selection");
+            require(context.uintArgsList[i][6] > 0); //, "order rateAmountS is zero");
+            require(context.uint8ArgsList[i][1] <= FEE_SELECT_MAX_VALUE); //, "invalid order fee selection");
         }
     }
 
     /// @dev        assmble order parameters into Order struct.
     /// @return     A list of orders.
-    function assembleOrders(
-        Context         context,
-        address[2][]    addressList,
-        uint[7][]       uintArgsList,
-        uint8[2][]      uint8ArgsList,
-        bool[]          buyNoMoreThanAmountBList,
-        uint8[]         vList,
-        bytes32[]       rList,
-        bytes32[]       sList
-        )
+    function assembleOrders(Context context)
         internal
         constant
         returns (OrderState[])
     {
-        var orders = new OrderState[](addressList.length);
+        var orders = new OrderState[](context.size);
 
-        for (uint i = 0; i < addressList.length; i++) {
+        for (uint i = 0; i < context.size; i++) {
             var order = Order(
-                addressList[i][0],
-                addressList[i][1],
-                addressList[(i + 1) % addressList.length][1],
-                uintArgsList[i][0],
-                uintArgsList[i][1],
-                uintArgsList[i][2],
-                uintArgsList[i][3],
-                uintArgsList[i][4],
-                uintArgsList[i][5],
-                buyNoMoreThanAmountBList[i],
-                uint8ArgsList[i][0],
-                vList[i],
-                rList[i],
-                sList[i]
+                context.addressList[i][0],
+                context.addressList[i][1],
+                context.addressList[(i + 1) % context.size][1],
+                context.uintArgsList[i][0],
+                context.uintArgsList[i][1],
+                context.uintArgsList[i][2],
+                context.uintArgsList[i][3],
+                context.uintArgsList[i][4],
+                context.uintArgsList[i][5],
+                context.buyNoMoreThanAmountBList[i],
+                context.uint8ArgsList[i][0],
+                context.vList[i],
+                context.rList[i],
+                context.sList[i]
             );
 
             bytes32 orderHash = calculateOrderHash(order);
@@ -870,8 +841,8 @@ contract LoopringProtocolImpl is LoopringProtocol {
             orders[i] = OrderState(
                 order,
                 orderHash,
-                uint8ArgsList[i][1],  // feeSelection
-                Rate(uintArgsList[i][6], order.amountB),
+                context.uint8ArgsList[i][1],  // feeSelection
+                Rate(context.uintArgsList[i][6], order.amountB),
                 context.delegate.getSpendable(order.tokenS, order.owner),
                 0,   // fillAmountS
                 0,   // lrcReward

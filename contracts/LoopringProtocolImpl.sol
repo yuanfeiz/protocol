@@ -107,6 +107,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
     }
 
     struct Ring {
+        uint         size;
         bytes32      ringhash;
         OrderState[] orders;
         address      miner;
@@ -413,7 +414,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         internal
         pure
     {
-        uint ringSize = ring.orders.length;
+        uint ringSize = ring.size;
         // Check the ring has no sub-ring.
         for (uint i = 0; i < ringSize - 1; i++) {
             address tokenS = ring.orders[i].order.tokenS;
@@ -450,6 +451,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         internal
     {
         var ring = Ring(
+            orders.length,
             ringhash,
             orders,
             miner,
@@ -503,7 +505,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         )
         internal
     {
-        uint ringSize = ring.orders.length;
+        uint ringSize = ring.size;
 
         for (uint i = 0; i < ringSize; i++) {
             var state = ring.orders[i];
@@ -603,7 +605,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
             ring.feeRecepient
         );
 
-        uint ringSize = ring.orders.length;
+        uint ringSize = ring.size;
 
         for (uint i = 0; i < ringSize; i++) {
             var state = ring.orders[i];
@@ -672,7 +674,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         internal
         view
     {
-        uint ringSize = ring.orders.length;
+        uint ringSize = ring.size;
         uint smallestIdx = 0;
         uint i;
         uint j;
@@ -751,7 +753,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
         internal
         view
     {
-        uint ringSize = ring.orders.length;
+        uint ringSize = ring.size;
 
         for (uint i = 0; i < ringSize; i++) {
             var state = ring.orders[i];

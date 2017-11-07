@@ -265,26 +265,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
         verifyTokensRegistered(addressList, ringSize);
 
-        var (ringhash, ringhashAttributes) = RinghashRegistry(
-            ringhashRegistryAddress
-        ).computeAndGetRinghashInfo(
-            ringSize,
-            ringminer,
-            vList,
-            rList,
-            sList
-        );
-
-        //Check if we can submit this ringhash.
-        require(ringhashAttributes[0]); // "Ring claimed by others");
-
-        verifySignature(
-            ringminer,
-            ringhash,
-            vList[ringSize],
-            rList[ringSize],
-            sList[ringSize]
-        );
+        
 
         handleOrdersAsRing(
             addressList,
@@ -296,9 +277,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
             sList,
             ringminer,
             feeRecepient,
-            throwIfLRCIsInsuffcient,
-            ringhashRegistry,
-            ringhash
+            throwIfLRCIsInsuffcient
         );
 
         ringIndex = ringIndex ^ ENTERED_MASK + 1;
@@ -314,24 +293,33 @@ contract LoopringProtocolImpl is LoopringProtocol {
         bytes32[]           sList,
         address             ringminer,
         address             feeRecepient,
-        bool                throwIfLRCIsInsuffcient,
-        RinghashRegistry    ringhashRegistry,
-        bytes32             ringhash
+        bool                throwIfLRCIsInsuffcient
         )
         public
     {
-        var delegate = TokenTransferDelegate(delegateAddress);
-        //Assemble input data into a struct so we can pass it to functions.
-        var orders = assembleOrders(
-            delegate,
-            addressList,
-            uintArgsList,
-            uint8ArgsList,
-            buyNoMoreThanAmountBList,
+        uint ringSize = addressList.length;
+        
+        var ringhashRegistry = RinghashRegistry(ringhashRegistryAddress);
+        var ringhash = ringhashRegistry.calculateRinghash(
+            addressList.length,
             vList,
             rList,
             sList
         );
+
+        //Check if we can submit this ringhash.
+        require(ringhashRegistry.canSubmit(ringhash, ringminer)); // "Ring claimed by others");
+
+        verifySignature(
+            ringminer,
+            ringhash,
+            vList[ringSize],
+            rList[ringSize],
+            sList[ringSize]
+        );
+
+
+        var delegate = TokenTransferDelegate(delegateAddress);
 
         if (feeRecepient == address(0)) {
             feeRecepient = ringminer;
@@ -340,11 +328,20 @@ contract LoopringProtocolImpl is LoopringProtocol {
         handleRing(
             delegate,
             ringhash,
-            orders,
+            assembleOrders(
+                delegate,
+                addressList,
+                uintArgsList,
+                uint8ArgsList,
+                buyNoMoreThanAmountBList,
+                vList,
+                rList,
+                sList
+            ),
             ringminer,
             feeRecepient,
             throwIfLRCIsInsuffcient,
-            ringhashAttributes[1]
+            ringhashRegistry.isReserved(ringhash, ringminer)
         );
 
         ringIndex = ringIndex ^ ENTERED_MASK + 1;
@@ -397,7 +394,6 @@ contract LoopringProtocolImpl is LoopringProtocol {
             orderValues[3], // ttl
             orderValues[4]  // salt
         );
-
 
         verifySignature(
             order.owner,

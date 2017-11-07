@@ -509,8 +509,8 @@ contract LoopringProtocolImpl is LoopringProtocol {
     {
         for (uint i = 0; i < ring.size; i++) {
             var state = ring.orders[i];
-            var prev = ring.orders[(i + ring.size - 1) % ring.size];
-            var next = ring.orders[(i + 1) % ring.size];
+            var prev = ring.orders[i == 0 ? (ring.size - 1) : (i - 1)];
+            var next = ring.orders[(i + 1) == ring.size ? 0 : (i + 1)];
 
             // Pay tokenS to previous order, or to miner as previous order's
             // margin split or/and this order's margin split.
@@ -607,7 +607,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
 
         for (uint i = 0; i < ring.size; i++) {
             var state = ring.orders[i];
-            var next = ring.orders[(i + 1) % ring.size];
+            var next = ring.orders[(i + 1) == ring.size ? 0 : (i + 1)];
 
             if (state.feeSelection == FEE_SELECT_LRC) {
 
@@ -677,7 +677,10 @@ contract LoopringProtocolImpl is LoopringProtocol {
         uint j;
 
         for (i = 0; i < ring.size; i++) {
-            j = (i + 1) % ring.size;
+            j = (i + 1);
+            if (j == ring.size) {
+                j = 0;
+            }
 
             uint res = calculateOrderFillAmount(
                 ring.orders[i],
@@ -692,7 +695,10 @@ contract LoopringProtocolImpl is LoopringProtocol {
         }
 
         for (i = 0; i < smallestIdx; i++) {
-            j = (i + 1) % ring.size;
+            j = (i + 1);
+            if (j == ring.size) {
+                j = 0;
+            }
             calculateOrderFillAmount(
                 ring.orders[i],
                 ring.orders[j]
@@ -832,7 +838,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
             var order = Order(
                 addressList[i][0],
                 addressList[i][1],
-                addressList[(i + 1) % addressList.length][1],
+                addressList[(i + 1) == addressList.length ? 0 : (i + 1)][1],
                 uintArgsList[i][0],
                 uintArgsList[i][1],
                 uintArgsList[i][5],

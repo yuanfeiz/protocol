@@ -213,8 +213,6 @@ export class ProtocolSimulator {
       if (0 == this.feeSelectionList[i]) {
         feeItem.feeLrc = order.params.lrcFee.toNumber();
       } else if (1 == this.feeSelectionList[i]) {
-
-
         if (order.params.buyNoMoreThanAmountB) {
           feeItem.feeS = fillAmountSList[i] * order.params.scaledAmountS / rateAmountSList[i] - fillAmountSList[i];
           feeItem.feeS = feeItem.feeS * order.params.marginSplitPercentage / 100;
@@ -240,9 +238,11 @@ export class ProtocolSimulator {
       const order = this.ring.orders[i];
       const nextInd = (i + 1) % size;
 
+      const splitPercentage = order.params.marginSplitPercentage;
+
       const balanceItem: BalanceItem = {
-        balanceS: order.params.amountS.toNumber() - fillAmountSList[i] - fees[i].feeS,
-        balanceB: fillAmountSList[nextInd] - fees[i].feeB,
+        balanceS: order.params.amountS.toNumber() - fillAmountSList[i] + fees[i].feeS * (100 - splitPercentage) / splitPercentage,
+        balanceB: fillAmountSList[nextInd] - fees[i].feeB + fees[i].feeB * (100 - splitPercentage) / splitPercentage,
       };
 
       balances.push(balanceItem);

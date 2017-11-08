@@ -562,6 +562,8 @@ contract LoopringProtocolImpl is LoopringProtocol {
             var state = orders[i];
             var prev = orders[(i + ringSize - 1) % ringSize];
 
+            uint splitSum = prev.splitB + state.splitS;
+
             // Pay tokenS to previous order, or to miner as previous order's
             // margin split or/and this order's margin split.
             fillTransferBatchItem(
@@ -570,11 +572,10 @@ contract LoopringProtocolImpl is LoopringProtocol {
                 state.order.tokenS,
                 state.order.owner,
                 prev.order.owner,
-                state.fillAmountS - prev.splitB
+                state.fillAmountS - splitSum
             );
             position += 4;
 
-            uint splitSum = prev.splitB + state.splitS;
             if (splitSum > 0) {
                 fillTransferBatchItem(
                     batch,

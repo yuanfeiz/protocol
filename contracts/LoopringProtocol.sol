@@ -26,7 +26,8 @@ contract LoopringProtocol {
     ////////////////////////////////////////////////////////////////////////////
     /// Constants                                                            ///
     ////////////////////////////////////////////////////////////////////////////
-    uint    public constant FEE_SELECT_LRC               = 0;
+    // CR<yuanfei>: Description of the constants is missing
+    uint    public constant FEE_SELECT_LRC               = 0; 
     uint    public constant FEE_SELECT_MARGIN_SPLIT      = 1;
     uint    public constant FEE_SELECT_MAX_VALUE         = 1;
     uint8   public constant MARGIN_SPLIT_PERCENTAGE_BASE = 100;
@@ -54,6 +55,9 @@ contract LoopringProtocol {
     /// @param v            ECDSA signature parameter v.
     /// @param r            ECDSA signature parameters r.
     /// @param s            ECDSA signature parameters s.
+
+    // CR<yuanfei>: docs is not aligned with the struct declaration
+    // is it necessary to mark the status(closed/open) of the order?
     struct Order {
         address owner;
         address tokenS;
@@ -100,7 +104,9 @@ contract LoopringProtocol {
     ///                     this address.
     function submitRing(
         address[2][]    addressList,
-        uint[7][]       uintArgsList,
+        // CR: to be more accurate, it's a TUPLE(fixed length)
+        uint[7][]       uintArgsList, 
+        // CR: same as above
         uint8[2][]      uint8ArgsList,
         bool[]          buyNoMoreThanAmountBList,
         uint8[]         vList,
@@ -125,6 +131,7 @@ contract LoopringProtocol {
     /// @param s                  Order ECDSA signature parameters s.
     function cancelOrder(
         address[3] addresses,
+        // CR: the parameters naming is not aligned with the counterpart in `submitRing`
         uint[7]    orderValues,
         bool       buyNoMoreThanAmountB,
         uint8      marginSplitPercentage,

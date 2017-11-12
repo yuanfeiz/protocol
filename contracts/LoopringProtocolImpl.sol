@@ -49,7 +49,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
     // Rate ratio is the ratio between executed rate and an order's original
     // rate.
     //
-    // To require all orders' rate ratios to have coefficient ofvariation (CV)
+    // To require all orders' rate ratios to have coefficient of variation (CV)
     // smaller than 2.5%, for an example , rateRatioCVSThreshold should be:
     //     `(0.025 * RATE_RATIO_SCALE)^2` or 62500.
     uint    public  rateRatioCVSThreshold       = 0;
@@ -68,7 +68,8 @@ contract LoopringProtocolImpl is LoopringProtocol {
     ////////////////////////////////////////////////////////////////////////////
     /// Structs                                                              ///
     ////////////////////////////////////////////////////////////////////////////
-
+    
+    // CR: why it's named Rate?
     struct Rate {
         uint amountS;
         uint amountB;
@@ -86,7 +87,7 @@ contract LoopringProtocolImpl is LoopringProtocol {
     /// @param fillAmountS  Amount of tokenS to sell, calculated by protocol.
     /// @param lrcReward    The amount of LRC paid by miner to order owner in
     ///                     exchange for margin split.
-    /// @param lrcFee       The amount of LR paid by order owner to miner.
+    /// @param lrcFee       The amount of LRC paid by order owner to miner.
     /// @param splitS      TokenS paid to miner.
     /// @param splitB      TokenB paid to miner.
     struct OrderState {

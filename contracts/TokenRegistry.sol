@@ -20,7 +20,7 @@ pragma solidity 0.4.18;
 import "./lib/Ownable.sol";
 
 
-/// @title Token Register Contract
+/// @title Token Registry Contract
 /// @author Kongliang Zhong - <kongliang@loopring.org>,
 /// @author Daniel Wang - <daniel@loopring.org>.
 contract TokenRegistry is Ownable {
@@ -62,6 +62,7 @@ contract TokenRegistry is Ownable {
 
     function isTokenRegisteredBySymbol(string symbol)
         public
+        // CR: better to be consistent by using `constant` across all the places
         view
         returns (bool)
     {
@@ -89,6 +90,7 @@ contract TokenRegistry is Ownable {
         return true;
     }
 
+    // CR: how about `getTokenBySymbol`?
     function getAddressBySymbol(string symbol)
         public
         constant
